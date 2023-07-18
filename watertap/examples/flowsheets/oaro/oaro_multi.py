@@ -786,10 +786,10 @@ def adjust_recycle_pump_init(m, stage):
             break
 
 
-def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False):
+def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=True):
     print("--------------------START FORWARD INITIALIZATION PASS--------------------")
     # ---initialize feed block---
-    m.fs.feed.initialize()
+    m.fs.feed.initialize(optarg=optarg)
 
     propagate_state(m.fs.feed_to_pump)
 
@@ -797,7 +797,7 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False):
     first_stage = m.fs.FirstStage
 
     propagate_state(m.fs.feed_to_pump)
-    m.fs.PrimaryPumps[first_stage].initialize()
+    m.fs.PrimaryPumps[first_stage].initialize(optarg=optarg)
 
     # ---initialize first OARO unit---
     propagate_state(m.fs.pump_to_OARO[first_stage])
@@ -809,17 +809,18 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False):
             solute_multiplier=0.5,
         )
     propagate_state(m.fs.recyclepump_to_OARO[first_stage + 1])
-    report_inlet_condition(m,first_stage)
     try:
-        m.fs.OAROUnits[first_stage].initialize()
+        m.fs.OAROUnits[first_stage].initialize(optarg=optarg)
     except ValueError:
         print('ValueError')
         debug(m)
-    report_outlet_condition(m,first_stage)
+    if verbose:
+            report_inlet_condition(m,stage)
+            report_outlet_condition(m,stage)
 
     for stage in m.fs.IntermediateStages:
         propagate_state(m.fs.OARO_to_pump[stage - 1])
-        m.fs.PrimaryPumps[stage].initialize()
+        m.fs.PrimaryPumps[stage].initialize(optarg=optarg)
 
         # ---initialize loop---
         propagate_state(m.fs.pump_to_OARO[stage])
@@ -831,9 +832,8 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False):
                 solute_multiplier=0.1,
             )
         propagate_state(m.fs.recyclepump_to_OARO[stage + 1])
-        report_inlet_condition(m,stage)
         try:
-            m.fs.OAROUnits[stage].initialize()
+            m.fs.OAROUnits[stage].initialize(optarg=optarg)
         except InitializationError:
             debug(m, automate_rescale=True)
             adjust_recycle_pump_init(m, stage)
@@ -843,70 +843,78 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False):
             debug(m, automate_rescale=True)
             adjust_recycle_pump_init(m, stage)
             pass
-        report_outlet_condition(m,stage)
+        if verbose:
+            report_inlet_condition(m,stage)
+            report_outlet_condition(m,stage)
 
         propagate_state(m.fs.OARO_to_ERD[stage])
-        m.fs.EnergyRecoveryDevices[stage].initialize()
+        m.fs.EnergyRecoveryDevices[stage].initialize(optarg=optarg)
 
         propagate_state(m.fs.ERD_to_separator[stage])
-        m.fs.Separators[stage].initialize()
+        m.fs.Separators[stage].initialize(optarg=optarg)
         propagate_state(m.fs.separator_to_intermediatemixer[stage])
-        m.fs.IntermediateMixers[stage].initialize()
+        m.fs.IntermediateMixers[stage].initialize(optarg=optarg)
         propagate_state(m.fs.intermediatemixer_to_recyclepump[stage])
-        m.fs.RecyclePumps[stage].initialize()
+        m.fs.RecyclePumps[stage].initialize(optarg=optarg)
 
         propagate_state(m.fs.recyclepump_to_OARO[stage])
         propagate_state(m.fs.pump_to_OARO[stage - 1])
 
+        # try:
+        #     m.fs.OAROUnits[stage - 1].initialize(optarg=optarg)
+        # except:
+        #     pass
+
     # ---initialize RO loop---
     propagate_state(m.fs.OARO_to_pump[last_stage - 1])
-    m.fs.PrimaryPumps[last_stage].initialize()
+    try:
+        m.fs.PrimaryPumps[last_stage].initialize(optarg=optarg)
+    except:
+        pass
 
-    # propagate_state(m.fs.pump_to_ro)
-    # print(m.fs.pump_to_ro.destination.name)
-    # m.fs.pump_to_ro.destination.display()
-    # try:
-    #     m.fs.RO.initialize()
-    # except InitializationError:
-    #     debug(m)
-    #     debug(m, automate_rescale=True)
-    #     m.fs.RO.initialize()
-    #     pass
-    # except PropertyPackageError:
-    #     debug(m)
-    #     debug(m, automate_rescale=True)
-    #     m.fs.RO.initialize()
-    #     pass
+    propagate_state(m.fs.pump_to_ro)
+    try:
+        m.fs.RO.initialize(optarg=optarg)
+    except InitializationError:
+        # debug(m)
+        # debug(m, automate_rescale=True)
+        # m.fs.RO.initialize(optarg=optarg)
+        pass
+    except PropertyPackageError:
+        # debug(m)
+        # debug(m, automate_rescale=True)
+        # m.fs.RO.initialize(optarg=optarg)
+        pass
 
-    # propagate_state(m.fs.ro_to_ERD)
-    # m.fs.EnergyRecoveryDevices[last_stage].initialize()
+    propagate_state(m.fs.ro_to_ERD)
+    m.fs.EnergyRecoveryDevices[last_stage].initialize(optarg=optarg)
 
-    # propagate_state(m.fs.ERD_to_separator[last_stage])
-    # m.fs.Separators[last_stage].initialize()
-    # propagate_state(m.fs.separator_to_recyclepump)
-    # m.fs.RecyclePumps[last_stage].initialize()
+    propagate_state(m.fs.ERD_to_separator[last_stage])
+    m.fs.Separators[last_stage].initialize(optarg=optarg)
+    propagate_state(m.fs.separator_to_recyclepump)
+    m.fs.RecyclePumps[last_stage].initialize(optarg=optarg)
 
-    # propagate_state(m.fs.recyclepump_to_OARO[last_stage])
-    # propagate_state(m.fs.pump_to_OARO[last_stage - 1])
-    # m.fs.OAROUnits[last_stage - 1].initialize()
+    propagate_state(m.fs.recyclepump_to_OARO[last_stage])
+    propagate_state(m.fs.pump_to_OARO[last_stage - 1])
+    m.fs.OAROUnits[last_stage - 1].initialize(optarg=optarg)
 
-    # # ---initialize first ERD---
-    # propagate_state(m.fs.OARO_to_ERD[first_stage])
-    # m.fs.EnergyRecoveryDevices[first_stage].initialize()
+    # ---initialize first ERD---
+    propagate_state(m.fs.OARO_to_ERD[first_stage])
+    m.fs.EnergyRecoveryDevices[first_stage].initialize(optarg=optarg)
 
-    # print(f"DOF: {degrees_of_freedom(m)}")
+    print(f"DOF: {degrees_of_freedom(m)}")
 
     # m.fs.costing.initialize()
 
 
-def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False):
+def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=True):
     print("--------------------START BACKWARD INITIALIZATION PASS--------------------")
 
     first_stage = m.fs.FirstStage
     for stage in reversed(m.fs.IntermediateStages):
         print(f"Stage: {stage}")
         propagate_state(m.fs.OARO_to_pump[stage - 1])
-        m.fs.PrimaryPumps[stage].initialize()
+        m.fs.PrimaryPumps[stage].initialize(optarg=optarg)
 
         # ---initialize loop---
         propagate_state(m.fs.pump_to_OARO[stage])
@@ -918,9 +926,9 @@ def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False):
                 solute_multiplier=0.1,
             )
         propagate_state(m.fs.recyclepump_to_OARO[stage + 1])
-        report_inlet_condition(m,stage)
+        
         try:
-            m.fs.OAROUnits[stage].initialize()
+            m.fs.OAROUnits[stage].initialize(optarg=optarg)
         except InitializationError:
             debug(m, automate_rescale=True)
             adjust_recycle_pump_init(m, stage)
@@ -930,26 +938,28 @@ def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False):
             debug(m, automate_rescale=True)
             adjust_recycle_pump_init(m, stage)
             pass
-        report_outlet_condition(m,stage)
+        if verbose:
+            report_inlet_condition(m,stage)
+            report_outlet_condition(m,stage)
 
         propagate_state(m.fs.OARO_to_ERD[stage])
-        m.fs.EnergyRecoveryDevices[stage].initialize()
+        m.fs.EnergyRecoveryDevices[stage].initialize(optarg=optarg)
 
         propagate_state(m.fs.ERD_to_separator[stage])
-        m.fs.Separators[stage].initialize()
+        m.fs.Separators[stage].initialize(optarg=optarg)
         propagate_state(m.fs.separator_to_intermediatemixer[stage])
-        m.fs.IntermediateMixers[stage].initialize()
+        m.fs.IntermediateMixers[stage].initialize(optarg=optarg)
         propagate_state(m.fs.intermediatemixer_to_recyclepump[stage])
-        m.fs.RecyclePumps[stage].initialize()
+        m.fs.RecyclePumps[stage].initialize(optarg=optarg)
 
         propagate_state(m.fs.recyclepump_to_OARO[stage])
         propagate_state(m.fs.pump_to_OARO[stage - 1])
 
     # ---initialize feed block---
-    m.fs.feed.initialize()
+    m.fs.feed.initialize(optarg=optarg)
 
     propagate_state(m.fs.feed_to_pump)
-    m.fs.PrimaryPumps[first_stage].initialize()
+    m.fs.PrimaryPumps[first_stage].initialize(optarg=optarg)
 
     # ---initialize first OARO unit---
     propagate_state(m.fs.pump_to_OARO[first_stage])
@@ -961,9 +971,10 @@ def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False):
             solute_multiplier=0.5,
         )
     propagate_state(m.fs.recyclepump_to_OARO[first_stage + 1])
-    report_inlet_condition(m,first_stage)
-    m.fs.OAROUnits[first_stage].initialize()
-    report_outlet_condition(m,first_stage)
+    m.fs.OAROUnits[first_stage].initialize(optarg=optarg)
+    if verbose:
+        report_inlet_condition(m,first_stage)
+        report_outlet_condition(m,first_stage)
 
 
 def initialize(m, verbose=True, solver=None):
@@ -973,9 +984,9 @@ def initialize(m, verbose=True, solver=None):
         solver = get_solver()
 
     optarg = solver.options
-    do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=True)
-    do_backward_initialization_pass(m, optarg, guess_recycle_pump=False)
-    do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=False)
+    do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=True, verbose=False)
+    do_backward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=False)
+    do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=False, verbose=False)
 
     # # set up SD tool
     seq = SequentialDecomposition()
