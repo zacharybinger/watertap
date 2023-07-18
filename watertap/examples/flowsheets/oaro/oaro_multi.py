@@ -30,10 +30,10 @@ from pyomo.environ import (
     SolverFactory,
     units as pyunits,
 )
-from pyomo.network import Arc
+from pyomo.network import Arc, SequentialDecomposition
 from idaes.core import FlowsheetBlock
 from idaes.core.solvers import get_solver
-from idaes.core.util.exceptions import InitializationError
+from idaes.core.util.exceptions import InitializationError, PropertyPackageError
 from idaes.core.util.model_statistics import degrees_of_freedom, fixed_variables_set
 from idaes.core.util.initialization import (
     solve_indexed_blocks,
@@ -45,6 +45,7 @@ from idaes.core import UnitModelCostingBlock
 import idaes.core.util.scaling as iscale
 import idaes.logger as idaeslog
 from idaes.core.util.misc import StrEnum
+import idaes.logger as idaeslogger
 
 import watertap.property_models.NaCl_prop_pack as props
 from watertap.unit_models.reverse_osmosis_0D import (
@@ -65,6 +66,9 @@ from watertap.costing.units.pump import cost_low_pressure_pump, PumpType
 
 from watertap.core.util.model_diagnostics.infeasible import *
 from idaes.core.util.model_diagnostics import DegeneracyHunter
+from util import *
+from debug import *
+import numpy as np
 
 class ERDtype(StrEnum):
     pump_as_turbine = "pump_as_turbine"
@@ -89,7 +93,8 @@ def main(number_of_stages, system_recovery, erd_type=ERDtype.pump_as_turbine):
     # build, set, and initialize
     m = build(number_of_stages=number_of_stages, erd_type=erd_type)
     set_operating_conditions(m, number_of_stages=number_of_stages)
-    initialize_system(m, number_of_stages, solver=solver)
+    initialize(m)
+    # initialize_system(m, number_of_stages, solver=solver)
 
     # solve(m, solver=solver)
     # print("\n***---Simulation results---***")
@@ -102,23 +107,23 @@ def main(number_of_stages, system_recovery, erd_type=ERDtype.pump_as_turbine):
     # print_close_to_bounds(m)
     # print_infeasible_constraints(m)
 
-    optimize_set_up(
-        m, number_of_stages=number_of_stages, water_recovery=system_recovery
-    )
+    # optimize_set_up(
+    #     m, number_of_stages=number_of_stages, water_recovery=system_recovery
+    # )
 
-    results = solve(m, solver=solver)
-    assert_optimal_termination(results)
+    # results = solve(m, solver=solver)
+    # assert_optimal_termination(results)
 
-    print_close_to_bounds(m)
-    print_infeasible_constraints(m)
+    # print_close_to_bounds(m)
+    # print_infeasible_constraints(m)
 
-    print("\n***---Optimization results---***")
-    display_system(m)
-    display_design(m)
-    if erd_type == ERDtype.pump_as_turbine:
-        display_state(m)
-    else:
-        pass
+    # print("\n***---Optimization results---***")
+    # display_system(m)
+    # display_design(m)
+    # if erd_type == ERDtype.pump_as_turbine:
+    #     display_state(m)
+    # else:
+    #     pass
 
     return m
 
@@ -649,8 +654,11 @@ def set_operating_conditions(
         pump.control_volume.properties_out[0].pressure.fix()
 
     # Initialize OARO
-    width = 5 * Qin / 1e-3  # effective membrane width [m]
-    area = 100 * Qin / 1e-3  # membrane area [m^2]
+    # width = 5 * Qin / 1e-3  # effective membrane width [m]
+    # area = 100 * Qin / 1e-3  # membrane area [m^2]
+    width = 6.7E1 * Qin  # effective membrane width [m]
+    area = 1E4 * Qin  # membrane area [m^2]
+    print(width, area)
     A_OARO = 1.0e-12
     B_OARO = 8.0e-8
     spacer_porosity = 0.75
@@ -733,15 +741,6 @@ def recycle_pump_initializer(pump, oaro, solvent_multiplier, solute_multiplier):
     )
 
 
-# def solve(blk, solver=None, tee=True):
-#     if solver is None:
-#         solver = get_solver(options={"bound_push": 1e-2})
-#     results = solver.solve(blk, tee=tee)
-#     if not check_optimal_termination(results):
-#         results = solver.solve(blk, tee=tee)
-#     return results
-
-
 def solve(model, solver=None, tee=False, raise_on_failure=False):
     # ---solving---
     if solver is None:
@@ -758,9 +757,65 @@ def solve(model, solver=None, tee=False, raise_on_failure=False):
     else:
         print(msg)
         return results
+    
+def adjust_recycle_pump_init(m, stage):
+    solvent_mults = np.linspace(0.1,0.9,9)
+    solute_mults = np.linspace(0.1,0.9,9)
+    break_out_flag = False
+    for idx1, solvent in enumerate(solvent_mults):
+        for idx2, solute in enumerate(solute_mults):
+            print(f'Adjusting recycle pump initialization for stage {stage} with solvent multiplier {solvent} and solute multiplier {solute}')
+            recycle_pump_initializer(
+                    m.fs.RecyclePumps[stage + 1],
+                    m.fs.OAROUnits[stage],
+                    solvent_multiplier=solvent,
+                    solute_multiplier=solute,
+                )
+            propagate_state(m.fs.recyclepump_to_OARO[stage + 1])
+            try:
+                m.fs.OAROUnits[stage].initialize()
+            except InitializationError:
+                pass
+            except PropertyPackageError:
+                pass
+            else:
+                print('Inititialization successful')
+                break_out_flag = True
+                break
+        if break_out_flag:
+            break
 
 
-def initialize_loop(m, solver):
+def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False):
+    print("--------------------START FORWARD INITIALIZATION PASS--------------------")
+    # ---initialize feed block---
+    m.fs.feed.initialize()
+
+    propagate_state(m.fs.feed_to_pump)
+
+    last_stage = m.fs.LastStage
+    first_stage = m.fs.FirstStage
+
+    propagate_state(m.fs.feed_to_pump)
+    m.fs.PrimaryPumps[first_stage].initialize()
+
+    # ---initialize first OARO unit---
+    propagate_state(m.fs.pump_to_OARO[first_stage])
+    if guess_recycle_pump:
+        recycle_pump_initializer(
+            m.fs.RecyclePumps[first_stage + 1],
+            m.fs.OAROUnits[first_stage],
+            solvent_multiplier=0.8,
+            solute_multiplier=0.5,
+        )
+    propagate_state(m.fs.recyclepump_to_OARO[first_stage + 1])
+    report_inlet_condition(m,first_stage)
+    try:
+        m.fs.OAROUnits[first_stage].initialize()
+    except ValueError:
+        print('ValueError')
+        debug(m)
+    report_outlet_condition(m,first_stage)
 
     for stage in m.fs.IntermediateStages:
         propagate_state(m.fs.OARO_to_pump[stage - 1])
@@ -768,14 +823,27 @@ def initialize_loop(m, solver):
 
         # ---initialize loop---
         propagate_state(m.fs.pump_to_OARO[stage])
-        recycle_pump_initializer(
-            m.fs.RecyclePumps[stage + 1],
-            m.fs.OAROUnits[stage],
-            solvent_multiplier=0.8,
-            solute_multiplier=0.5,
-        )
+        if guess_recycle_pump:
+            recycle_pump_initializer(
+                m.fs.RecyclePumps[stage + 1],
+                m.fs.OAROUnits[stage],
+                solvent_multiplier=0.5,
+                solute_multiplier=0.1,
+            )
         propagate_state(m.fs.recyclepump_to_OARO[stage + 1])
-        m.fs.OAROUnits[stage].initialize()
+        report_inlet_condition(m,stage)
+        try:
+            m.fs.OAROUnits[stage].initialize()
+        except InitializationError:
+            debug(m, automate_rescale=True)
+            adjust_recycle_pump_init(m, stage)
+            pass
+        except PropertyPackageError:
+            debug(m)
+            debug(m, automate_rescale=True)
+            adjust_recycle_pump_init(m, stage)
+            pass
+        report_outlet_condition(m,stage)
 
         propagate_state(m.fs.OARO_to_ERD[stage])
         m.fs.EnergyRecoveryDevices[stage].initialize()
@@ -789,15 +857,93 @@ def initialize_loop(m, solver):
 
         propagate_state(m.fs.recyclepump_to_OARO[stage])
         propagate_state(m.fs.pump_to_OARO[stage - 1])
-        m.fs.OAROUnits[stage - 1].initialize()
+
+    # ---initialize RO loop---
+    propagate_state(m.fs.OARO_to_pump[last_stage - 1])
+    m.fs.PrimaryPumps[last_stage].initialize()
+
+    # propagate_state(m.fs.pump_to_ro)
+    # print(m.fs.pump_to_ro.destination.name)
+    # m.fs.pump_to_ro.destination.display()
+    # try:
+    #     m.fs.RO.initialize()
+    # except InitializationError:
+    #     debug(m)
+    #     debug(m, automate_rescale=True)
+    #     m.fs.RO.initialize()
+    #     pass
+    # except PropertyPackageError:
+    #     debug(m)
+    #     debug(m, automate_rescale=True)
+    #     m.fs.RO.initialize()
+    #     pass
+
+    # propagate_state(m.fs.ro_to_ERD)
+    # m.fs.EnergyRecoveryDevices[last_stage].initialize()
+
+    # propagate_state(m.fs.ERD_to_separator[last_stage])
+    # m.fs.Separators[last_stage].initialize()
+    # propagate_state(m.fs.separator_to_recyclepump)
+    # m.fs.RecyclePumps[last_stage].initialize()
+
+    # propagate_state(m.fs.recyclepump_to_OARO[last_stage])
+    # propagate_state(m.fs.pump_to_OARO[last_stage - 1])
+    # m.fs.OAROUnits[last_stage - 1].initialize()
+
+    # # ---initialize first ERD---
+    # propagate_state(m.fs.OARO_to_ERD[first_stage])
+    # m.fs.EnergyRecoveryDevices[first_stage].initialize()
+
+    # print(f"DOF: {degrees_of_freedom(m)}")
+
+    # m.fs.costing.initialize()
 
 
-def initialize_system(m, number_of_stages=None, solver=None, verbose=True):
-    if solver is None:
-        solver = get_solver()
+def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False):
+    print("--------------------START BACKWARD INITIALIZATION PASS--------------------")
 
-    last_stage = m.fs.LastStage
     first_stage = m.fs.FirstStage
+    for stage in reversed(m.fs.IntermediateStages):
+        print(f"Stage: {stage}")
+        propagate_state(m.fs.OARO_to_pump[stage - 1])
+        m.fs.PrimaryPumps[stage].initialize()
+
+        # ---initialize loop---
+        propagate_state(m.fs.pump_to_OARO[stage])
+        if guess_recycle_pump:
+            recycle_pump_initializer(
+                m.fs.RecyclePumps[stage + 1],
+                m.fs.OAROUnits[stage],
+                solvent_multiplier=0.5,
+                solute_multiplier=0.1,
+            )
+        propagate_state(m.fs.recyclepump_to_OARO[stage + 1])
+        report_inlet_condition(m,stage)
+        try:
+            m.fs.OAROUnits[stage].initialize()
+        except InitializationError:
+            debug(m, automate_rescale=True)
+            adjust_recycle_pump_init(m, stage)
+            pass
+        except PropertyPackageError:
+            debug(m)
+            debug(m, automate_rescale=True)
+            adjust_recycle_pump_init(m, stage)
+            pass
+        report_outlet_condition(m,stage)
+
+        propagate_state(m.fs.OARO_to_ERD[stage])
+        m.fs.EnergyRecoveryDevices[stage].initialize()
+
+        propagate_state(m.fs.ERD_to_separator[stage])
+        m.fs.Separators[stage].initialize()
+        propagate_state(m.fs.separator_to_intermediatemixer[stage])
+        m.fs.IntermediateMixers[stage].initialize()
+        propagate_state(m.fs.intermediatemixer_to_recyclepump[stage])
+        m.fs.RecyclePumps[stage].initialize()
+
+        propagate_state(m.fs.recyclepump_to_OARO[stage])
+        propagate_state(m.fs.pump_to_OARO[stage - 1])
 
     # ---initialize feed block---
     m.fs.feed.initialize()
@@ -806,48 +952,47 @@ def initialize_system(m, number_of_stages=None, solver=None, verbose=True):
     m.fs.PrimaryPumps[first_stage].initialize()
 
     # ---initialize first OARO unit---
-    if number_of_stages > int(1):
-        propagate_state(m.fs.pump_to_OARO[first_stage])
+    propagate_state(m.fs.pump_to_OARO[first_stage])
+    if guess_recycle_pump:
         recycle_pump_initializer(
             m.fs.RecyclePumps[first_stage + 1],
             m.fs.OAROUnits[first_stage],
             solvent_multiplier=0.8,
             solute_multiplier=0.5,
         )
-        propagate_state(m.fs.recyclepump_to_OARO[first_stage + 1])
-        m.fs.OAROUnits[first_stage].initialize()
+    propagate_state(m.fs.recyclepump_to_OARO[first_stage + 1])
+    report_inlet_condition(m,first_stage)
+    m.fs.OAROUnits[first_stage].initialize()
+    report_outlet_condition(m,first_stage)
 
-        if number_of_stages > 2:
-            print(f"DOF before loop: {degrees_of_freedom(m)}")
-            initialize_loop(m, solver)
-            print(f"DOF after loop: {degrees_of_freedom(m)}")
 
-        # ---initialize RO loop---
-        propagate_state(m.fs.OARO_to_pump[last_stage - 1])
-        m.fs.PrimaryPumps[last_stage].initialize()
+def initialize(m, verbose=True, solver=None):
+    # ---initializing---
+    # set up solvers
+    if solver is None:
+        solver = get_solver()
 
-    propagate_state(m.fs.pump_to_ro)
-    m.fs.RO.initialize()
+    optarg = solver.options
+    do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=True)
+    do_backward_initialization_pass(m, optarg, guess_recycle_pump=False)
+    do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=False)
 
-    propagate_state(m.fs.ro_to_ERD)
-    m.fs.EnergyRecoveryDevices[last_stage].initialize()
+    # # set up SD tool
+    seq = SequentialDecomposition()
+    seq.options.tear_method = "Direct"
+    seq.options.iterLim = m.fs.NumberOfStages
+    seq.options.tear_set = list(m.fs.recyclepump_to_OARO.values())
+    seq.options.log_info = True
 
-    if number_of_stages > int(1):
+    # run SD tool
+    def func_initialize(unit):
+        outlvl = idaeslogger.INFO if verbose else idaeslogger.CRITICAL
+        try:
+            unit.initialize(optarg=solver.options, outlvl=outlvl)
+        except InitializationError:
+            pass
 
-        propagate_state(m.fs.ERD_to_separator[last_stage])
-        m.fs.Separators[last_stage].initialize()
-        propagate_state(m.fs.separator_to_recyclepump)
-        m.fs.RecyclePumps[last_stage].initialize()
-
-        propagate_state(m.fs.recyclepump_to_OARO[last_stage])
-        propagate_state(m.fs.pump_to_OARO[last_stage - 1])
-        m.fs.OAROUnits[last_stage - 1].initialize()
-
-        # ---initialize first ERD---
-        propagate_state(m.fs.OARO_to_ERD[first_stage])
-        m.fs.EnergyRecoveryDevices[first_stage].initialize()
-
-    print(f"DOF: {degrees_of_freedom(m)}")
+    seq.run(m, func_initialize)
 
     m.fs.costing.initialize()
 
@@ -1159,4 +1304,4 @@ def display_state(m):
 
 
 if __name__ == "__main__":
-    m = main(5, system_recovery=0.5, erd_type=ERDtype.pump_as_turbine)
+    m = main(3, system_recovery=0.5, erd_type=ERDtype.pump_as_turbine)
