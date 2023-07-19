@@ -83,6 +83,22 @@ def propagate_state(arc):
     # print(arc.destination.name)
     # arc.destination.display()
 
+def fail_msg(blk, stage, pass_dir, pass_num):
+    border_l = '\n================= '
+    border_r = ' =================\n'
+    msg = f'{blk} {stage} Initialization Failed during {pass_dir} {pass_num}'
+    print(''.join([border_l, msg, border_r]))
+    return border_l, msg, border_r
+
+def success_msg(blk, stage, pass_dir, pass_num):
+    border_l = '\n================= '
+    border_r = ' =================\n'
+    msg = f'{blk} {stage} Initialization Passed during {pass_dir} {pass_num}'
+    print(''.join([border_l, msg, border_r]))
+    return border_l, msg, border_r
+
+init_track = []
+
 def main(number_of_stages, system_recovery, erd_type=ERDtype.pump_as_turbine):
     # set up solver
     solver = get_solver()
@@ -98,7 +114,12 @@ def main(number_of_stages, system_recovery, erd_type=ERDtype.pump_as_turbine):
     # display_system(m)
     # display_design(m)
     # display_state(m)
+    for msg in np.unique(init_track):
+        print(msg)
+    
     create_system_report(m)
+    
+
     # if erd_type == ERDtype.pump_as_turbine:
     #     display_state(m)
     # else:
@@ -595,7 +616,7 @@ def build(number_of_stages, erd_type=ERDtype.pump_as_turbine):
 
     if erd_type == ERDtype.pump_as_turbine:
         for erd in m.fs.EnergyRecoveryDevices.values():
-            iscale.set_scaling_factor(erd.control_volume.work, 1e-3)
+            iscale.set_scaling_factor(erd.control_volume.work, 1e-4)
     else:
         erd_type_not_found(erd_type)
     # unused scaling factors needed by IDAES base costing module
@@ -673,7 +694,7 @@ def set_operating_conditions(
         stage.permeate_side.spacer_porosity.fix(spacer_porosity)
         stage.feed_side.channel_height.fix(2e-3)
         stage.feed_side.spacer_porosity.fix(spacer_porosity)
-        stage.feed_side.velocity[0, 0].fix(0.1)
+        stage.feed_side.velocity[0, 0].fix(0.25)
 
     # RO unit
     A_RO = 4.2e-12
@@ -807,11 +828,14 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=
     propagate_state(m.fs.recyclepump_to_OARO[first_stage + 1])
     try:
         m.fs.OAROUnits[first_stage].initialize(optarg=optarg)
+        msg = success_msg('OARO', first_stage, 'Forward Initializaion', init_pass)
+        init_track.append(msg[1])
     except ValueError:
         print('ValueError')
     except InitializationError:
         adjust_recycle_pump_init(m, first_stage)
-        print(f'OARO {first_stage} Initialization Failed')
+        msg = fail_msg('OARO', first_stage, 'Forward Initializaion', init_pass)
+        init_track.append(msg[1])
 
     if verbose:
             report_inlet_condition(m,stage)
@@ -833,13 +857,17 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=
         propagate_state(m.fs.recyclepump_to_OARO[stage + 1])
         try:
             m.fs.OAROUnits[stage].initialize(optarg=optarg)
+            msg = success_msg('OARO', stage, 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
         except InitializationError:
-            print(f'OARO {stage} Initialization Failed')
+            msg = fail_msg('OARO', stage, 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
             debug(m, automate_rescale=True, verbose=verbose)
             adjust_recycle_pump_init(m, stage)
             pass
         except PropertyPackageError:
-            print(f'OARO {stage} Initialization Failed')
+            msg = fail_msg('OARO', stage, 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
             debug(m, automate_rescale=True, verbose=verbose)
             adjust_recycle_pump_init(m, stage)
             pass
@@ -862,8 +890,11 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=
 
         try:
             m.fs.OAROUnits[stage - 1].initialize(optarg=optarg)
+            msg = success_msg('OARO', stage-1, 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
         except:
-            print(f'OARO {stage - 1}Initialization Failed')
+            msg = fail_msg('OARO', stage-1, 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
             pass
 
     # ---initialize RO loop---
@@ -871,7 +902,6 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=
     try:
         m.fs.PrimaryPumps[last_stage].initialize(optarg=optarg)
     except:
-        print(f'OARO {last_stage} Initialization Failed')
         pass
 
     propagate_state(m.fs.pump_to_ro)
@@ -881,15 +911,21 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=
         debug(m, verbose=verbose, automate_rescale=True)
         try:
             m.fs.RO.initialize(optarg=optarg)
+            msg = success_msg('RO', '', 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
         except:
-            print('RO Initialization Failed')
+            msg = fail_msg('RO', '', 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
             pass
     except PropertyPackageError:
         debug(m, verbose=verbose, automate_rescale=True)
         try:
             m.fs.RO.initialize(optarg=optarg)
+            msg = success_msg('RO', '', 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
         except:
-            print('RO Initialization Failed')
+            msg = fail_msg('RO', '', 'Forward Initializaion', init_pass)
+            init_track.append(msg[1])
             pass
 
     propagate_state(m.fs.ro_to_ERD)
@@ -904,15 +940,18 @@ def do_forward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=
     propagate_state(m.fs.pump_to_OARO[last_stage - 1])
     try:
         m.fs.OAROUnits[last_stage - 1].initialize(optarg=optarg)
+        msg = success_msg('OARO', last_stage-1, 'Forward Initializaion', init_pass)
+        init_track.append(msg[1])
     except:
-        print(f'OARO {last_stage - 1} Initialization Failed')
+        msg = fail_msg('OARO', last_stage-1, 'Forward Initializaion', init_pass)
+        init_track.append(msg[1])
         pass
 
     # ---initialize first ERD---
     propagate_state(m.fs.OARO_to_ERD[first_stage])
     m.fs.EnergyRecoveryDevices[first_stage].initialize(optarg=optarg)
 
-    print(f"DOF: {degrees_of_freedom(m)}")
+    # print(f"DOF: {degrees_of_freedom(m)}")
 
     # m.fs.costing.initialize()
 
@@ -921,7 +960,6 @@ def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose
 
     first_stage = m.fs.FirstStage
     for stage in reversed(m.fs.IntermediateStages):
-        print(f"Stage: {stage}")
         propagate_state(m.fs.OARO_to_pump[stage - 1])
         m.fs.PrimaryPumps[stage].initialize(optarg=optarg)
 
@@ -938,15 +976,19 @@ def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose
         
         try:
             m.fs.OAROUnits[stage].initialize(optarg=optarg)
+            msg = success_msg('OARO', stage, 'Backward Initializaion', init_pass)
+            init_track.append(msg[1])
         except InitializationError:
             debug(m, automate_rescale=True, verbose=verbose)
             adjust_recycle_pump_init(m, stage)
-            print(f'OARO {stage} Initialization Failed')
+            msg = fail_msg('OARO', stage, 'Backward Initializaion', init_pass)
+            init_track.append(msg[1])
             pass
         except PropertyPackageError:
             debug(m, automate_rescale=True, verbose=verbose)
             adjust_recycle_pump_init(m, stage)
-            print(f'OARO {stage} Initialization Failed')
+            msg = fail_msg('OARO', stage, 'Backward Initializaion', init_pass)
+            init_track.append(msg[1])
             pass
         if verbose:
             report_inlet_condition(m,stage)
@@ -981,7 +1023,15 @@ def do_backward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose
             solute_multiplier=0.5,
         )
     propagate_state(m.fs.recyclepump_to_OARO[first_stage + 1])
-    m.fs.OAROUnits[first_stage].initialize(optarg=optarg)
+    try:
+        m.fs.OAROUnits[first_stage].initialize(optarg=optarg)
+        msg = success_msg('OARO', first_stage, 'Backward Initializaion', init_pass)
+        init_track.append(msg[1])
+    except InitializationError:
+        msg = fail_msg('OARO', first_stage, 'Backward Initializaion', init_pass)
+        init_track.append(msg[1])
+        debug(m, automate_rescale=True, verbose=verbose)
+        adjust_recycle_pump_init(m, first_stage)
     if verbose:
         report_inlet_condition(m,first_stage)
         report_outlet_condition(m,first_stage)
@@ -1001,8 +1051,12 @@ def do_seq_decomp_initialization(m, optarg=None, verbose=True):
         outlvl = idaeslogger.INFO if verbose else idaeslogger.CRITICAL
         try:
             unit.initialize(optarg=optarg, outlvl=outlvl)
+            if unit in [m.fs.RO, m.fs.OAROUnits[1]]:
+                msg = success_msg(unit, '', 'Sequential Decomposition', '')
+                init_track.append(msg[1])
         except InitializationError:
-            print(f'{unit} Initialization Failed')
+            msg = fail_msg(unit, '', 'Sequential Decomposition', '')
+            init_track.append(msg[1])
             pass
 
     seq.run(m, func_initialize)
@@ -1012,14 +1066,17 @@ def do_seq_decomp_initialization(m, optarg=None, verbose=True):
 def initialize(m, verbose=True, solver=None):
     if solver is None:
         solver = get_solver()
-
+        
     optarg = solver.options
     do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=True, verbose=False, init_pass=1)
+    do_seq_decomp_initialization(m, optarg=optarg, verbose=False)
     for init_pass in range(m.fs.NumberOfStages.value // 2):
         do_backward_initialization_pass(m, optarg, guess_recycle_pump=False, verbose=False, init_pass=init_pass+1)
         do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=False, verbose=False, init_pass=init_pass+2)
 
+    do_forward_initialization_pass(m, optarg=optarg, guess_recycle_pump=True, verbose=False, init_pass='Final')
     do_seq_decomp_initialization(m, optarg=optarg, verbose=False)
+    
 
 def optimize_set_up(
     m,
@@ -1324,4 +1381,4 @@ def display_state(m):
     print_state(f"Product", m.fs.product.inlet)
 
 if __name__ == "__main__":
-    m = main(2, system_recovery=0.5, erd_type=ERDtype.pump_as_turbine)
+    m = main(3, system_recovery=0.5, erd_type=ERDtype.pump_as_turbine)
