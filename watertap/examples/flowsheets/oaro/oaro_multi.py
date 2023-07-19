@@ -1324,4 +1324,4 @@ def display_state(m):
     print_state(f"Product", m.fs.product.inlet)
 
 if __name__ == "__main__":
-    m = main(4, system_recovery=0.5, erd_type=ERDtype.pump_as_turbine)
+    m = main(2, system_recovery=0.5, erd_type=ERDtype.pump_as_turbine)
