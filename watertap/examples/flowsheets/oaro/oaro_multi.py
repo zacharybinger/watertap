@@ -1157,6 +1157,9 @@ def optimize_set_up(
 
         stage.permeate_outlet.pressure[0].setlb(101325)
 
+        stage.dP_dx.setlb(None)
+        stage.dP_dx.setub(None)
+        
         # stage.A_comp.unfix()
         # stage.A_comp.setlb(2.78e-12)
         # stage.A_comp.setub(4.2e-11)
@@ -1165,6 +1168,9 @@ def optimize_set_up(
     m.fs.RO.area.unfix()
     m.fs.RO.area.setlb(1)
     m.fs.RO.area.setub(20000)
+    
+    m.fs.RO.dP_dx.setlb(None)
+    m.fs.RO.dP_dx.setub(None)
 
     m.fs.RO.width.unfix()
     m.fs.RO.width.setlb(0.1)

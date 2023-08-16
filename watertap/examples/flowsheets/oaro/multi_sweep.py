@@ -40,7 +40,7 @@ def _oaro_presweep(number_of_stages=2):
         erd_type=ERDtype.pump_as_turbine,
     )
     oaro.set_operating_conditions(m, number_of_stages)
-    oaro.initialize_system(m, number_of_stages)
+    oaro.initialize(m, number_of_stages)
     oaro.solve(m)
     m.fs.feed.flow_mass_phase_comp.unfix()
     m.fs.feed.properties[0].conc_mass_phase_comp["Liq", "NaCl"].fix()

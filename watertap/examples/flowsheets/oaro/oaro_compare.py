@@ -59,6 +59,7 @@ from watertap.core import (
 
 import matplotlib.pyplot as plt
 import numpy as np
+from debug import *
 
 # -----------------------------------------------------------------------------
 # Get default solver for testing
@@ -91,7 +92,7 @@ def main():
 def solve(m):
     solver = get_solver()
     results = solver.solve(m, tee=True)
-
+    debug(m)
     return results
 
 def build(water_recovery=0.5):
@@ -148,7 +149,7 @@ def build(water_recovery=0.5):
     m.fs.unit.structural_parameter.fix(1200e-6)
 
     m.fs.unit.permeate_side.channel_height.fix(0.002)
-    m.fs.unit.permeate_side.spacer_porosity.fix(0.89)
+    m.fs.unit.permeate_side.spacer_porosity.fix(0.8)
     m.fs.unit.feed_side.channel_height.fix(0.002)
     m.fs.unit.feed_side.spacer_porosity.fix(0.95)
     # m.fs.unit.feed_side.velocity[0, 0].fix(0.1)
