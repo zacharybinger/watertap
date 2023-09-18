@@ -1,3 +1,4 @@
+import os
 # Import concrete model from Pyomo
 from pyomo.environ import ConcreteModel, Var, Reals, Objective, Constraint, value, NonNegativeReals, units as pyunits
 # Import flowsheet block from IDAES core
@@ -16,6 +17,8 @@ from skk_util import *
 
 import numpy as np
 import matplotlib.pyplot as plt
+
+par_dir = os.path.dirname(os.path.abspath(__file__))
 
 def add_vars(m):
 
@@ -170,7 +173,7 @@ def param_sweep_2D():
             salt_flux_results.append(value(pyunits.convert(m.fs.salt_flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr)))
             reports.append(create_report(m))
     report = pd.concat(reports)
-    report.to_csv('SKK_conc_vs_pressure.csv')
+    report.to_csv(os.path.join(par_dir, 'reports/', 'SKK_stateblock_conc_vs_pressure.csv'))
     print(report)
 
 def reflection_sensitivity():
@@ -196,7 +199,7 @@ def reflection_sensitivity():
         reports.append(create_report(m))
 
     report = pd.concat(reports)
-    report.to_csv('SKK_stateblock_report.csv')
+    report.to_csv(os.path.join(par_dir, 'reports/', 'SKK_stateblock_sensitivity.csv'))
     print(report)
     plot_data(ref_coeff_range, flux_results, salt_flux_results, ax=ax, xlabel=r'Reflect Coeff. $(\sigma)$', ylabel=r'Water Flux $(\frac{L}{m^{2}  hr})$', ylabel2=r'Salt Flux $(\frac{kg}{m^{2}  hr})$')
     # plot_data(ref_coeff_range, flux_results, salt_flux_results, ax=ax, xlabel=r'Reflect Coeff. $(\frac{1-\sigma}{\omega^\prime})$', ylabel=r'Water Flux $(\frac{L}{m^{2}  hr})$', ylabel2=r'Salt Flux $(\frac{kg}{m^{2}  hr})$')
@@ -211,6 +214,7 @@ def main():
     results = solver.solve(m)
     df = create_report(m)
     # df.to_csv('SKK_stateblock_main.csv')
+    df.to_csv(os.path.join(par_dir, 'reports/', 'SKK_stateblock_report.csv'))
     print(df)
     # print(m.fs.display())
 

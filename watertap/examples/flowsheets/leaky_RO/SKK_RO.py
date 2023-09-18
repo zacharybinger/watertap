@@ -1,3 +1,4 @@
+import os
 # Imports from Pyomo, including "value" for getting the 
 # value of Pyomo objects
 from pyomo.environ import ConcreteModel, Objective, Expression, value, units as pyunits
@@ -21,7 +22,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skk_util import plot_data, plot_contour, plot_fixed_alpha, SKK_RO_report
 
-salt_perm_mag = -7
+par_dir = os.path.dirname(os.path.abspath(__file__))
 
 def build():
     # Create a Pyomo concrete model, flowsheet, and NaCl property parameter block.
@@ -246,7 +247,7 @@ def main():
     skk_1D_df =SKK_RO_report(m.fs.ROunit_SKK_1D)
    
     report = pd.concat([sd_0D_df, sd_1D_df, skk_0D_df, skk_1D_df])
-    report.to_csv('SKK_RO_report.csv')
+    report.to_csv(os.path.join(par_dir, 'reports/', 'SKK_unit_model_report.csv'))
     print(report)
 
 if __name__ == "__main__":
