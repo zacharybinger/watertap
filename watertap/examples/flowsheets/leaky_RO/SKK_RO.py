@@ -1,7 +1,7 @@
 import os
 # Imports from Pyomo, including "value" for getting the 
 # value of Pyomo objects
-from pyomo.environ import ConcreteModel, Objective, Expression, value, units as pyunits
+from pyomo.environ import ConcreteModel, Objective, Expression, check_optimal_termination, value, units as pyunits
 from idaes.core import FlowsheetBlock
 from idaes.core.solvers import get_solver
 from idaes.core.util.model_statistics import degrees_of_freedom
@@ -23,7 +23,9 @@ import matplotlib.pyplot as plt
 from skk_util import plot_data, plot_contour, plot_fixed_alpha, SKK_RO_report
 
 par_dir = os.path.dirname(os.path.abspath(__file__))
-
+liq = "Liq"
+h2o = "H2O"
+nacl = 'NaCl'
 def build():
     # Create a Pyomo concrete model, flowsheet, and NaCl property parameter block.
     m = ConcreteModel()
@@ -38,17 +40,17 @@ def build():
         transport_model = 'SD',
         )
     
-    m.fs.ROunit_SD_1D = ReverseOsmosis1D(
-        property_package=m.fs.properties,
-        has_pressure_change=True,
-        pressure_change_type=PressureChangeType.calculated,
-        mass_transfer_coefficient=MassTransferCoefficient.calculated,
-        concentration_polarization_type=ConcentrationPolarizationType.calculated,
-        transformation_scheme="BACKWARD",
-        transformation_method="dae.finite_difference",
-        finite_elements=10,
-        transport_model = 'SD',
-        )
+    # m.fs.ROunit_SD_1D = ReverseOsmosis1D(
+    #     property_package=m.fs.properties,
+    #     has_pressure_change=True,
+    #     pressure_change_type=PressureChangeType.calculated,
+    #     mass_transfer_coefficient=MassTransferCoefficient.calculated,
+    #     concentration_polarization_type=ConcentrationPolarizationType.calculated,
+    #     transformation_scheme="BACKWARD",
+    #     transformation_method="dae.finite_difference",
+    #     finite_elements=10,
+    #     transport_model = 'SD',
+    #     )
     
     m.fs.ROunit_SKK_0D = ReverseOsmosis0D(
         property_package=m.fs.properties,
@@ -58,18 +60,21 @@ def build():
         transport_model = 'SKK',
         )
     
-    m.fs.ROunit_SKK_1D = ReverseOsmosis1D(
-        property_package=m.fs.properties,
-        has_pressure_change=True,
-        pressure_change_type=PressureChangeType.calculated,
-        mass_transfer_coefficient=MassTransferCoefficient.calculated,
-        concentration_polarization_type=ConcentrationPolarizationType.calculated,
-        transformation_scheme="BACKWARD",
-        transformation_method="dae.finite_difference",
-        finite_elements=10,
-        transport_model = 'SKK'
-        )
+    # m.fs.ROunit_SKK_1D = ReverseOsmosis1D(
+    #     property_package=m.fs.properties,
+    #     has_pressure_change=True,
+    #     pressure_change_type=PressureChangeType.calculated,
+    #     mass_transfer_coefficient=MassTransferCoefficient.calculated,
+    #     concentration_polarization_type=ConcentrationPolarizationType.calculated,
+    #     transformation_scheme="BACKWARD",
+    #     transformation_method="dae.finite_difference",
+    #     finite_elements=10,
+    #     transport_model = 'SKK'
+    #     )
     
+    m.fs.units = [m.fs.ROunit_SD_0D, m.fs.ROunit_SKK_0D]
+    # m.fs.units = [m.fs.ROunit_SD_0D, m.fs.ROunit_SKK_0D, m.fs.ROunit_SD_1D, m.fs.ROunit_SKK_1D]
+
     set_scaling(m)
 
     return m
@@ -79,9 +84,9 @@ def set_operating_conditions(m,
                              pressure = 50e5,
                              A_LMH = 10,
                              B_LMH = 1,
-                             reflect_coeff=0.9):
+                             reflect_coeff=1):
 
-    for blk in [m.fs.ROunit_SD_0D, m.fs.ROunit_SD_1D, m.fs.ROunit_SKK_0D, m.fs.ROunit_SKK_1D]:
+    for blk in m.fs.units:
         blk.inlet.pressure[0].fix(pressure)                              # feed pressure (Pa)
         blk.inlet.temperature[0].fix(298.15)                         # feed temperature (K)
         blk.A_comp.fix(A_LMH/(1000*3600*1e5))                             # membrane water permeability (m/Pa/s)
@@ -89,7 +94,7 @@ def set_operating_conditions(m,
         blk.permeate.pressure[0].fix(101325)                         # permeate pressure (Pa)                               # membrane salt permeability (m/s)
         blk.inlet.flow_mass_phase_comp[0, 'Liq', 'NaCl'].fix(tds)  # mass flow rate of NaCl (kg/s)
         blk.inlet.flow_mass_phase_comp[0, 'Liq', 'H2O'].fix(1-tds)   # mass flow rate of water (kg/s)
-        blk.area.fix(1)                                             # membrane area (m^2)
+        blk.area.fix(5)                                             # membrane area (m^2)
 
 
 
@@ -101,6 +106,11 @@ def set_operating_conditions(m,
         if blk.config.transport_model == 'SKK':
             blk.reflect_coeff.fix(reflect_coeff)
 
+def optimize(m, reflect_coeff=0.9):
+    for blk in m.fs.units:
+        if blk.config.transport_model == 'SKK':
+            blk.reflect_coeff.fix(reflect_coeff)
+
 def set_scaling(m):
     # Set scaling factors for component mass flowrates.
     m.fs.properties.set_default_scaling('flow_mass_phase_comp', 1, index=('Liq', 'H2O'))
@@ -109,18 +119,18 @@ def set_scaling(m):
     # Set scaling factor for membrane area.
     set_scaling_factor(m.fs.ROunit_SD_0D.area, 1e-2)
     set_scaling_factor(m.fs.ROunit_SKK_0D.area, 1e-2)
-    set_scaling_factor(m.fs.ROunit_SKK_1D.feed_side.area, 1e-2)
-    set_scaling_factor(m.fs.ROunit_SKK_1D.area, 1e-2)
-    set_scaling_factor(m.fs.ROunit_SKK_1D.width, 1e-2)
-    set_scaling_factor(m.fs.ROunit_SD_1D.feed_side.area, 1e-2)
-    set_scaling_factor(m.fs.ROunit_SD_1D.area, 1e-2)
-    set_scaling_factor(m.fs.ROunit_SD_1D.width, 1e-2)
+    # set_scaling_factor(m.fs.ROunit_SKK_1D.feed_side.area, 1e-2)
+    # set_scaling_factor(m.fs.ROunit_SKK_1D.area, 1e-2)
+    # set_scaling_factor(m.fs.ROunit_SKK_1D.width, 1e-2)
+    # set_scaling_factor(m.fs.ROunit_SD_1D.feed_side.area, 1e-2)
+    # set_scaling_factor(m.fs.ROunit_SD_1D.area, 1e-2)
+    # set_scaling_factor(m.fs.ROunit_SD_1D.width, 1e-2)
 
     # Calculate scaling factors for all other variables.
     calculate_scaling_factors(m)
 
 def initialize(m):
-    for blk in [m.fs.ROunit_SD_0D, m.fs.ROunit_SD_1D, m.fs.ROunit_SKK_0D, m.fs.ROunit_SKK_1D]:
+    for blk in m.fs.units:
         blk.initialize()
 
     assert_no_degrees_of_freedom(m)
@@ -130,6 +140,14 @@ def solve(m, solver=None, tee=True):
         solver = get_solver()
 
     results = solver.solve(m, tee=False)
+
+    if check_optimal_termination(results):
+        print('Model solved optimally')
+        # print_close_to_bounds(m)
+        # print_variables_close_to_bounds(m)
+    else:
+        print_infeasible_bounds(m)
+        print_infeasible_constraints(m)
 
     return results
 
@@ -234,21 +252,41 @@ def sensitivity_study():
 
 def main():
     m = build()
-    set_operating_conditions(m, pressure=70e5, tds = 0.035, A_LMH = 1, B_LMH = 1, reflect_coeff=0.9)
-    
+    set_operating_conditions(m, pressure=70e5, tds = 0.035, A_LMH = 1, B_LMH = 0.5, reflect_coeff=1)
     initialize(m)
+
+    optimize(m, reflect_coeff=0.95)
     results = solve(m)
-
-    # print(m.fs.ROunit_SKK_1D.display())
-
-    sd_0D_df = SKK_RO_report(m.fs.ROunit_SD_0D)
-    sd_1D_df = SKK_RO_report(m.fs.ROunit_SD_1D)
-    skk_0D_df =SKK_RO_report(m.fs.ROunit_SKK_0D)
-    skk_1D_df =SKK_RO_report(m.fs.ROunit_SKK_1D)
+    report = pd.concat([SKK_RO_report(unit) for unit in m.fs.units])
+    # print(m.fs.units[0].display())
+    # sd_0D_df = SKK_RO_report(m.fs.ROunit_SD_0D)
+    # sd_1D_df = SKK_RO_report(m.fs.ROunit_SD_1D)
+    # skk_0D_df =SKK_RO_report(m.fs.ROunit_SKK_0D)
+    # skk_1D_df =SKK_RO_report(m.fs.ROunit_SKK_1D)
    
-    report = pd.concat([sd_0D_df, sd_1D_df, skk_0D_df, skk_1D_df])
-    report.to_csv(os.path.join(par_dir, 'reports/', 'SKK_unit_model_report.csv'))
+    # report = pd.concat([sd_0D_df, skk_0D_df, sd_1D_df, skk_1D_df])
+    # report.to_csv(os.path.join(par_dir, 'reports/', 'SKK_unit_model_report.csv'))
     print(report)
+
+    # for unit in m.fs.units:
+    #     print(unit.name),":"
+    #     print(f'{"Jw":<15s}{f"{value(unit.flux_mass_phase_comp_avg[0, liq, h2o]):<10,.2e}"}{f"{pyunits.get_units(unit.flux_mass_phase_comp_avg[0, liq, h2o])}":<10s}')
+    #     print(f'{"A":<15s}{f"{value(pyunits.convert(unit.A_comp[0, h2o], to_units=pyunits.m/pyunits.second/pyunits.Pa)):<10,.2e}"}{f"{pyunits.get_units(pyunits.convert(unit.A_comp[0, h2o], to_units=pyunits.m/pyunits.second/pyunits.Pa))}":<10s}')
+    #     print(f'{"Delta P":<15s}{f"{value(unit.inlet.pressure[0] - unit.permeate.pressure[0]):<10,.2e}"}{f"{pyunits.get_units(unit.inlet.pressure[0])}":<10s}')
+    #     print(f'{"Reflect Coeff":<15s}{f"{value(unit.reflect_coeff):<10,.2e}"}{f"{pyunits.get_units(unit.reflect_coeff)}":<10s}')
+    #     print(f'{"Feed Osm P":<15s}{f"{value(unit.feed_side.properties_interface[0,0].pressure_osm_phase[liq]):<10,.2e}"}{f"{pyunits.get_units(unit.feed_side.properties_interface[0,0].pressure_osm_phase[liq])}":<10s}')
+    #     print(f'{"Perm Osm P":<15s}{f"{value(unit.permeate_side[0,0].pressure_osm_phase[liq]):<10,.2e}"}{f"{pyunits.get_units(unit.feed_side.properties_interface[0,0].pressure_osm_phase[liq])}":<10s}')
+    #     print(f'{"Delta Osm P":<15s}{f"{value(unit.feed_side.properties_interface[0,0].pressure_osm_phase[liq] - unit.permeate_side[0,0].pressure_osm_phase[liq]):<10,.2e}"}{f"{pyunits.get_units(unit.feed_side.properties_interface[0,0].pressure_osm_phase[liq])}":<10s}')
+    #     print('\n')
+
+    # for unit in m.fs.units:
+    #     print(unit.name),":"
+    #     print(f'{"Js":<15s}{f"{value(unit.flux_mass_phase_comp_avg[0, liq, nacl]):<10,.2e}"}{f"{pyunits.get_units(unit.flux_mass_phase_comp_avg[0, liq, nacl])}":<10s}')
+    #     print(f'{"B":<15s}{f"{value(pyunits.convert(unit.B_comp[0, nacl], to_units=pyunits.m/pyunits.second)):<10,.2e}"}{f"{pyunits.get_units(pyunits.convert(unit.B_comp[0, nacl], to_units=pyunits.m/pyunits.second))}":<10s}')
+    #     print(f'{"Delta C":<15s}{f"{value(unit.feed_side.properties_in[0.0].conc_mass_phase_comp[liq,nacl]):<10,.2f}"}{f"{pyunits.get_units(unit.feed_side.properties_in[0.0].conc_mass_phase_comp[liq,nacl])}":<10s}')
+    #     print(f'{"Reflect Coeff":<15s}{f"{value(unit.reflect_coeff):<10,.2e}"}{f"{pyunits.get_units(unit.reflect_coeff)}":<10s}')
+    #     print(f'{"Jw":<15s}{f"{value(unit.flux_mass_phase_comp_avg[0, liq, h2o]):<10,.2e}"}{f"{pyunits.get_units(unit.flux_mass_phase_comp_avg[0, liq, h2o])}":<10s}')
+    #     print('\n')
 
 if __name__ == "__main__":
     main()

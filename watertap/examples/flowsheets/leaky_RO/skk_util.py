@@ -86,8 +86,8 @@ def print_results(m):
 #     return df
 
 def create_report(m):
-    var_labels = ["Water Perm. [LMH/bar]", "Salt Perm. [LMH]", "Feed Pressure", "Feed Mass Flow Rate", "Feed Solute Mass Flow Rate", "Feed Osm Pressure", "Perm Pressure", "Water Flux [LMH]", "Salt Flux [LMH]", "Reflection Coeff.", "Alpha"]
-    vars = [m.fs.A* (3.6e11), m.fs.B* (1000.0 * 3600.0), pyunits.convert(m.fs.feed[0].pressure, to_units=pyunits.bar), m.fs.feed[0].flow_mass_phase_comp[liq, h2o], m.fs.feed[0].flow_mass_phase_comp[liq, tds],pyunits.convert( m.fs.feed[0].pressure_osm_phase[liq], to_units=pyunits.bar), 101385/1e5, pyunits.convert(m.fs.flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), pyunits.convert(m.fs.salt_flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), m.fs.reflect_coeff, m.fs.alpha]
+    var_labels = ["Water Perm. [LMH/bar]", "Salt Perm. [LMH]", "Feed Pressure", "Feed Mass Flow Rate", "Feed Solute Mass Flow Rate", f"Feed Solute Conc [{pyunits.get_units(m.fs.feed[0].conc_mass_phase_comp['Liq', 'TDS'])}]", "Feed Osm Pressure", "Perm Pressure", "Water Flux [LMH]", "Salt Flux [LMH]", "Reflection Coeff.", "Alpha"]
+    vars = [m.fs.A* (3.6e11), m.fs.B* (1000.0 * 3600.0), pyunits.convert(m.fs.feed[0].pressure, to_units=pyunits.bar), m.fs.feed[0].flow_mass_phase_comp[liq, h2o], m.fs.feed[0].flow_mass_phase_comp[liq, tds], m.fs.feed[0].conc_mass_phase_comp['Liq', 'TDS'],pyunits.convert( m.fs.feed[0].pressure_osm_phase[liq], to_units=pyunits.bar), 101385/1e5, pyunits.convert(m.fs.flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), pyunits.convert(m.fs.salt_flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), m.fs.reflect_coeff, m.fs.alpha]
     var_vals = [value(i) for i in vars]
     df = pd.DataFrame.from_dict(dict.fromkeys(var_labels, []))
     df = pd.concat([df,pd.DataFrame([var_vals], columns=var_labels)], ignore_index=True)

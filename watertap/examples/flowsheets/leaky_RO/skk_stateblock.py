@@ -209,14 +209,13 @@ def reflection_sensitivity():
 def main():
     solver = get_solver()
     m = build(transport_model='SKK')
-    set_operating_conditions(m, pressure=70e5, tds = 0.035, A_LMH = 1, B_LMH = 1, reflect_coeff=0.9)
+    set_operating_conditions(m, pressure=70e5, tds = 0.035, A_LMH = 1, B_LMH = 0.5, reflect_coeff=0.95)
     # print(f"Degrees of Freedom: {degrees_of_freedom(m)}")
     results = solver.solve(m)
     df = create_report(m)
-    # df.to_csv('SKK_stateblock_main.csv')
     df.to_csv(os.path.join(par_dir, 'reports/', 'SKK_stateblock_report.csv'))
     print(df)
-    # print(m.fs.display())
+
 
 if __name__ == "__main__":
     main()
