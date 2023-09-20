@@ -86,8 +86,8 @@ def print_results(m):
 #     return df
 
 def create_report(m):
-    var_labels = ["Water Perm. [LMH/bar]", "Salt Perm. [LMH]", "Feed Pressure", "Feed Mass Flow Rate", "Feed Solute Mass Flow Rate", f"Feed Solute Conc [{pyunits.get_units(m.fs.feed[0].conc_mass_phase_comp['Liq', 'TDS'])}]", "Feed Osm Pressure", "Perm Pressure", "Water Flux [LMH]", "Salt Flux [LMH]", "Reflection Coeff.", "Alpha"]
-    vars = [m.fs.A* (3.6e11), m.fs.B* (1000.0 * 3600.0), pyunits.convert(m.fs.feed[0].pressure, to_units=pyunits.bar), m.fs.feed[0].flow_mass_phase_comp[liq, h2o], m.fs.feed[0].flow_mass_phase_comp[liq, tds], m.fs.feed[0].conc_mass_phase_comp['Liq', 'TDS'],pyunits.convert( m.fs.feed[0].pressure_osm_phase[liq], to_units=pyunits.bar), 101385/1e5, pyunits.convert(m.fs.flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), pyunits.convert(m.fs.salt_flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), m.fs.reflect_coeff, m.fs.alpha]
+    var_labels = ["Water Perm. [LMH/bar]", "Salt Perm. [LMH]", "Feed Pressure", "Feed Mass Flow Rate", "Feed Solute Mass Flow Rate", f"Feed Solute Conc [{pyunits.get_units(m.fs.feed[0].conc_mass_phase_comp['Liq', 'TDS'])}]", "Feed Osm Pressure", "Perm Pressure", "Water Flux [LMH]", "Salt Flux [LMH]", "Reflection Coeff.", "Alpha", "Rejection_Obs", "Rejection"]
+    vars = [m.fs.A* (3.6e11), m.fs.B* (1000.0 * 3600.0), pyunits.convert(m.fs.feed[0].pressure, to_units=pyunits.bar), m.fs.feed[0].flow_mass_phase_comp[liq, h2o], m.fs.feed[0].flow_mass_phase_comp[liq, tds], m.fs.feed[0].conc_mass_phase_comp['Liq', 'TDS'],pyunits.convert( m.fs.feed[0].pressure_osm_phase[liq], to_units=pyunits.bar), 101385/1e5, pyunits.convert(m.fs.flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), pyunits.convert(m.fs.salt_flux_mass_phase_comp, to_units=pyunits.kg /pyunits.m **2 / pyunits.hr), m.fs.reflect_coeff, m.fs.alpha, 100*m.fs.rejection, m.fs.rejection_skk]
     var_vals = [value(i) for i in vars]
     df = pd.DataFrame.from_dict(dict.fromkeys(var_labels, []))
     df = pd.concat([df,pd.DataFrame([var_vals], columns=var_labels)], ignore_index=True)
@@ -194,7 +194,7 @@ def SKK_RO_report(blk):
                     "Salt Flux [kg/m2/hr]",
                     "Recovery [%]",
                     "Rejection [%]",
-                    "Rejection 2 [%]"
+                    "Rejection Obs [%]"
                 ],
             )
     return df
@@ -241,7 +241,7 @@ def automate_rescale_variables(self, rescale_factor=1, default=1):
             set_scaling_factor(var, sf / sv * rescale_factor)
             calculate_scaling_factors(self)
 
-def plot_data(x, y1, y2, y3=None, ax=None, xlabel=None, ylabel=None, ylabel2=None, label=None):
+def plot_data(x, y1, y2, rej_obs=None, rej_skk=None, ax=None, xlabel=None, ylabel=None, ylabel2=None, label=None, A_LMH=0, B_LMH=0):
     colors = ["#2f5c8c", "#c07432", "#474747"]
     ax.plot(x,y1,'--',linewidth=2, c=colors[0])
     ax.plot(x,y1,'o',label=ylabel,linewidth=0, mfc=colors[0], mec=colors[0])
@@ -268,22 +268,32 @@ def plot_data(x, y1, y2, y3=None, ax=None, xlabel=None, ylabel=None, ylabel2=Non
     # Set number of tick marks for y-axis
     ax2.yaxis.set_major_locator(plt.MaxNLocator(5))
 
-    if y3 != None:
-        ax3 = ax.twinx()
-        ax3.spines.right.set_position(("outward", 85))
-        ax3.plot(x,y3,'--',linewidth=2, c='k')
-        ax3.plot(x,y3,'o',label='Rejection',linewidth=0, mfc="k", mec="k")
+    # if (rej_skk != None) | (rej_obs != None):
+    ax3 = ax.twinx()
+    ax3.spines.right.set_position(("outward", 85))
+
+    if rej_skk != None:
+        ax3.plot(x,rej_skk,'--',linewidth=1.5, c='k')
+        ax3.plot(x,rej_skk,'o',label='Rejection SKK',linewidth=0, mfc="k", mec="k")
         ax3.set_ylabel('Rejection (%)', fontsize=16)
         ax3.tick_params(axis="y", labelsize=16)
         ax3.yaxis.label.set_color('k')
-        ax3.set_ylim(90, 100)
+        ax3.set_ylim(0, 100)
+    
+    if rej_obs != None:
+        ax3.plot(x,rej_obs,'--',linewidth=1.5, c='k')
+        ax3.plot(x,rej_obs,'s',label='Rejection Obs',linewidth=0, mfc="k", mec="k")
+        ax3.set_ylabel('Rejection (%)', fontsize=16)
+        ax3.tick_params(axis="y", labelsize=16)
+        ax3.yaxis.label.set_color('k')
+        ax3.set_ylim(0, 100)
 
     plt.figlegend(loc='upper left', fontsize=12, frameon = False, bbox_to_anchor=(0.1, 0.98), ncols=2)
     # ax.set_xlim(min(x), max(x))
     # ax2.set_xlim(min(x), max(x))
 
-    ax.set_ylim(0, 60)
-    ax2.set_ylim(0, 1.5)
+    ax.set_ylim(0, 40)
+    ax2.set_ylim(0, 0.8)
     
 
     annote_lat = 0.28
@@ -310,13 +320,13 @@ def plot_data(x, y1, y2, y3=None, ax=None, xlabel=None, ylabel=None, ylabel2=Non
     
     # ax.annotate('Leaky\nMembrane',
     ax.annotate('Pristine\nMembrane',
-            xy=(0.80, 0.08), xycoords='axes fraction',
+            xy=(0.80, 0.07), xycoords='axes fraction',
             horizontalalignment='center', verticalalignment='center',
             fontsize=12)
     
     # ax.annotate('Pristine\nMembrane',
     ax.annotate('Leaky\nMembrane',
-            xy=(0.20, 0.08), xycoords='axes fraction',
+            xy=(0.20, 0.07), xycoords='axes fraction',
             horizontalalignment='center', verticalalignment='center',
             fontsize=12)
         
@@ -332,12 +342,12 @@ def plot_data(x, y1, y2, y3=None, ax=None, xlabel=None, ylabel=None, ylabel2=Non
             bbox=dict(boxstyle="round", fc="0.8"),
             fontsize=14)
     
-    ax.annotate(f'A = 5.0 LMH/bar',
+    ax.annotate(f'A = {A_LMH} LMH/bar',
             xy=(annote_long, annote_lat+0.11), xycoords='axes fraction',
             horizontalalignment='left', verticalalignment='top',
             fontsize=12)
     
-    ax.annotate(f'B = 13.5 LMH',
+    ax.annotate(f'B = {B_LMH} LMH',
             xy=(annote_long, annote_lat+0.06), xycoords='axes fraction',
             horizontalalignment='left', verticalalignment='top',
             fontsize=12)
@@ -404,8 +414,8 @@ def plot_contour(x, y, z, levels=None, x_label='', y_label='', z_label='', low=-
     else:
         cs1 = ax.contourf(x, y, z, 100, cmap=cmap_pallete, norm=divnorm)
 
-    plt.gca().set_aspect('equal')
-    ax.set_aspect('equal')
+    # plt.gca().set_aspect('equal')
+    # ax.set_aspect('equal')
     tick_locator = ticker.MaxNLocator(nbins=6)
     cbar.locator = tick_locator
     cbar.update_ticks()
