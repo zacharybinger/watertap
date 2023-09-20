@@ -343,28 +343,28 @@ class ReverseOsmosisBaseData(InitializationMixin, UnitModelBlockData):
         )
 
         self.reflect_coeff = Var(
-                initialize=0.9,
-                domain=NonNegativeReals,
-                units=pyunits.dimensionless,
-                doc="Reflection coefficient of the membrane",
-            )
-        
+            initialize=0.9,
+            domain=NonNegativeReals,
+            units=pyunits.dimensionless,
+            doc="Reflection coefficient of the membrane",
+        )
+
         self.alpha = Var(
-                initialize=1e-8,
-                domain=NonNegativeReals,
-                units=units_meta("time") * units_meta("length") ** -1,
-                doc="Alpha coefficient of the membrane",
-            )
+            initialize=1e-8,
+            domain=NonNegativeReals,
+            units=units_meta("time") * units_meta("length") ** -1,
+            doc="Alpha coefficient of the membrane",
+        )
 
         @self.Constraint(
-                self.flowsheet().config.time, solute_set, doc="SKK alpha coeff."
-            )
+            self.flowsheet().config.time, solute_set, doc="SKK alpha coeff."
+        )
         def eq_alpha(b, t, j):
             return b.alpha == (1 - b.reflect_coeff) / b.B_comp[t, j]
-        
+
         if self.config.transport_model != "SKK":
             self.reflect_coeff.fix(1)
-            
+
         @self.Constraint(
             self.flowsheet().config.time,
             self.difference_elements,
@@ -394,7 +394,7 @@ class ReverseOsmosisBaseData(InitializationMixin, UnitModelBlockData):
                     - prop_perm.conc_mass_phase_comp[p, j]
                 ) + (1 - b.reflect_coeff) * (
                     (
-                        (b.flux_mass_phase_comp[t, x, p, 'H2O'] / b.dens_solvent)
+                        (b.flux_mass_phase_comp[t, x, p, "H2O"] / b.dens_solvent)
                         * interface.conc_mass_phase_comp[p, j]
                     )
                 )
