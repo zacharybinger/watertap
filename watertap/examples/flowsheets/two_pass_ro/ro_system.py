@@ -155,24 +155,24 @@ def build_ro_stage(m, blk, booster_pump=False):
         has_full_reporting = True
     )
 
-    blk.module.eq_area.deactivate()
-    @blk.module.Constraint(doc="Total Membrane area")
-    def eq_area_new(b):
-        return b.area == b.length * 2 * b.width
+    # blk.module.eq_area.deactivate()
+    # @blk.module.Constraint(doc="Total Membrane area")
+    # def eq_area_new(b):
+    #     return b.area == b.length * 2 * b.width
     
-    blk.module.eq_mass_flux_equal_mass_transfer.deactivate()
-    @blk.module.Constraint(
-        blk.flowsheet().config.time,
-        blk.module.difference_elements,
-        blk.module.config.property_package.phase_list,
-        blk.module.config.property_package.component_list,
-        doc="Mass transfer term",
-        )
-    def eq_mass_flux_equal_mass_transfer_new(b, t, x, p, j):
-        return (
-            b.flux_mass_phase_comp[t, x, p, j] * (b.area / b.length)
-            == -b.feed_side.mass_transfer_term[t, x, p, j]
-        )
+    # blk.module.eq_mass_flux_equal_mass_transfer.deactivate()
+    # @blk.module.Constraint(
+    #     blk.flowsheet().config.time,
+    #     blk.module.difference_elements,
+    #     blk.module.config.property_package.phase_list,
+    #     blk.module.config.property_package.component_list,
+    #     doc="Mass transfer term",
+    #     )
+    # def eq_mass_flux_equal_mass_transfer_new(b, t, x, p, j):
+    #     return (
+    #         b.flux_mass_phase_comp[t, x, p, j] * (b.area / b.length)
+    #         == -b.feed_side.mass_transfer_term[t, x, p, j]
+    #     )
 
     if booster_pump:
         blk.stage_feed_to_booster_pump = Arc(

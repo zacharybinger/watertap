@@ -382,8 +382,8 @@ def set_operating_conditions(m):
     set_inlet_conditions(m, Qin=5, Cin=2, primary_pump_pressure=25e5, booster_pump_pressure=10e5)
     RO1_area = 100
     RO2_area = 50
-    set_ro_system_operating_conditions(m, m.fs.RO1, mem_area=[250, 125])
-    set_ro_system_operating_conditions(m, m.fs.RO2, mem_area=[250, 125])
+    set_ro_system_operating_conditions(m, m.fs.RO1, mem_area=[200, 125])
+    set_ro_system_operating_conditions(m, m.fs.RO2, mem_area=[200, 125])
 
     iscale.calculate_scaling_factors(m)
 
