@@ -371,6 +371,16 @@ class ReverseOsmosisBaseData(InitializationMixin, UnitModelBlockData):
             * units_meta("time") ** -1,
             doc="Mass flux across membrane at inlet and outlet",
         )
+        
+        self.flux_vol_phase_avg = Var(
+            self.flowsheet().config.time,
+            self.config.property_package.phase_list,
+
+            initialize=30,
+            domain=NonNegativeReals,
+            units=pyunits.L / pyunits.m**2 / pyunits.hr,
+            doc='Average Solvent Flux (LMH)'
+        )
 
         if self.config.transport_model == TransportModel.SD:
 
@@ -461,6 +471,16 @@ class ReverseOsmosisBaseData(InitializationMixin, UnitModelBlockData):
                     b.flux_mass_phase_comp[t, x, p, j] for x in self.difference_elements
                 )
                 / self.nfe
+            )
+        
+        @self.Expression(
+            self.flowsheet().config.time,
+            self.config.property_package.phase_list,
+            doc="Average flux expression",
+        )
+        def flux_vol_phase_avg(b, t, p):
+            return (
+                b.flux_mass_phase_comp_avg
             )
 
         if (
@@ -771,8 +791,8 @@ class ReverseOsmosisBaseData(InitializationMixin, UnitModelBlockData):
             var_dict["Hydraulic Diameter"] = self.feed_side.dh
 
         if self.config.has_full_reporting:
-            expr_dict["Average Solvent Mass Flux"] = self.flux_mass_phase_comp_avg[
-                time_point, "Liq", "H2O"
+            expr_dict["Average Solvent Mass Flux"] = self.flux_vol_phase_avg[
+                time_point, "Liq"
             ]
             if hasattr(self.feed_side, "N_Re_avg"):
                 expr_dict["Average Reynolds Number"] = self.feed_side.N_Re_avg[
@@ -780,7 +800,9 @@ class ReverseOsmosisBaseData(InitializationMixin, UnitModelBlockData):
                 ]
             for j in self.config.property_package.solute_set:
                 expr_dict[f"{j} Average Solute Mass Flux"] = (
-                    self.flux_mass_phase_comp_avg[time_point, "Liq", j]
+                    pyunits.convert(
+                        self.flux_mass_phase_comp_avg[time_point, "Liq", j], to_units=pyunits.g / pyunits.m ** 2 / pyunits.hour
+                        )
                 )
                 if hasattr(self.feed_side, "K_avg"):
                     expr_dict[f"{j} Average Mass Transfer Coefficient"] = (
