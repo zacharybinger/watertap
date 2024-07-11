@@ -47,6 +47,7 @@ def build():
         property_package=m.fs.properties,
         has_holdup=False,
         num_inlets = 2,
+        momentum_mixing_type = MomentumMixingType.equality,
     )
 
     m.fs.RO = ReverseOsmosis0D(
@@ -59,9 +60,10 @@ def build():
     )
 
     # connect unit models
-    m.fs.feed_to_M1 = Arc(source=m.fs.feed.outlet, destination=m.fs.M1.inlet_1)
-    m.fs.M1_to_P1 = Arc(source=m.fs.M1.outlet, destination=m.fs.P1.inlet)
-    m.fs.P1_to_RO = Arc(source=m.fs.P1.outlet, destination=m.fs.RO.inlet)
+    m.fs.feed_to_P1 = Arc(source=m.fs.feed.outlet, destination=m.fs.P1.inlet)
+    m.fs.P1_to_M1 = Arc(source=m.fs.P1.outlet, destination=m.fs.M1.inlet_1)
+    m.fs.M1_to_RO = Arc(source=m.fs.M1.outlet, destination=m.fs.RO.inlet)
+
     m.fs.RO_to_product = Arc(source=m.fs.RO.permeate, destination=m.fs.product.inlet)
     m.fs.RO_to_P2 = Arc(source=m.fs.RO.retentate, destination=m.fs.P2.inlet)
     m.fs.P2_to_M1 = Arc(source=m.fs.P2.outlet, destination=m.fs.M1.inlet_2)
@@ -129,9 +131,6 @@ def set_operating_conditions(m, Qin = 1, Cin = 35):
         == m.fs.feed_flow_mass * m.fs.feed_salinity
     )
 
-    # feed, 4 degrees of freedom
-    # m.fs.feed.properties[0].flow_mass_phase_comp['Liq', 'H2O'].fix(0.965)                # volumetric flow rate (m3/s)
-    # m.fs.feed.properties[0].flow_mass_phase_comp["Liq", "TDS"].fix(0.035)  # TDS mass fraction (-)
     m.fs.feed.properties[0].pressure.fix(101325)                           # pressure (Pa)
     m.fs.feed.properties[0].temperature.fix(273.15 + 25)                   # temperature (K)
 
@@ -139,15 +138,15 @@ def set_operating_conditions(m, Qin = 1, Cin = 35):
     m.fs.P1.efficiency_pump.fix(0.80)                                    # pump efficiency (-)
     m.fs.P1.control_volume.properties_out[0].pressure.fix(75e5)          # pump outlet pressure (Pa)
     m.fs.P2.efficiency_pump.fix(0.80)                                    # pump efficiency (-)
-    m.fs.P2.control_volume.properties_out[0].pressure.fix(75e5)          # pump outlet pressure (Pa)
+    # m.fs.P2.control_volume.properties_out[0].pressure.fix(75e5)          # pump outlet pressure (Pa)
 
     # RO unit, 7 degrees of freedom
     m.fs.RO.A_comp.fix(4.2e-12)                                            # membrane water permeability coeff (m/Pa/s)
     m.fs.RO.B_comp.fix(3.5e-8)                                             # membrane salt permeability coeff (m/s)
 
     # fix 4 module specficiations
-    m.fs.RO.area.fix(100)                                                # membrane stage area (m^2)
-    m.fs.RO.width.fix(5)                                                # membrane stage width (m)
+    m.fs.RO.area.fix(25)                                                # membrane stage area (m^2)
+    m.fs.RO.length.fix(7)                                                # membrane stage width (m)
     m.fs.RO.feed_side.channel_height.fix(1E-3)                          # channel height in membrane stage (m)
     m.fs.RO.feed_side.spacer_porosity.fix(0.97)                         # spacer porosity in membrane stage (-)
     m.fs.RO.permeate.pressure[0].fix(101325)                               # permeate pressure (Pa)
@@ -182,16 +181,16 @@ def initialize_mixer(m, guess = True):
 def do_forward_initialization_pass(m, pass_num=1):
     # initialize unit by unit
     m.fs.feed.initialize()
-    propagate_state(m.fs.feed_to_M1)
+    propagate_state(m.fs.feed_to_P1)
+
+    m.fs.P1.initialize()
+    propagate_state(m.fs.P1_to_M1)
 
     if pass_num > 0:
         m.fs.M1.initialize()
     else:
         initialize_mixer(m)
-    propagate_state(m.fs.M1_to_P1)
-
-    m.fs.P1.initialize()
-    propagate_state(m.fs.P1_to_RO)
+    propagate_state(m.fs.M1_to_RO)
 
     m.fs.RO.initialize()
     propagate_state(m.fs.RO_to_product)
@@ -208,13 +207,15 @@ def initialize(m):
         do_forward_initialization_pass(m, pass_num=idx)
         print_results(m)
 
+
 def optimize(m, Q_ro = 0.965):
 
     m.fs.feed_flow_mass.unfix()
     m.fs.RO.inlet.flow_mass_phase_comp[0,"Liq", "H2O"].fix(Q_ro)
-    m.fs.RO.recovery_vol_phase[0, "Liq"].fix(0.5)
+    m.fs.RO.recovery_vol_phase[0, "Liq"].fix(0.1)
     m.fs.P1.control_volume.properties_out[0].pressure.unfix()          # pump outlet pressure (Pa)                                # pump efficiency (-)
     m.fs.P2.control_volume.properties_out[0].pressure.unfix()          # pump outlet pressure (Pa)
+
 
 def solve(m, solver=None, tee=True, raise_on_failure=True):
     if solver is None:
@@ -246,7 +247,6 @@ def solve(m, solver=None, tee=True, raise_on_failure=True):
         print_results(m)
 
 
-
 def print_results(m):
     print('\n\n')
     print(f'MIXER INLET 1: {value(m.fs.M1.inlet_1_state[0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
@@ -255,11 +255,14 @@ def print_results(m):
     print('\n')
     print(f'PUMP 1 INLET: {value(m.fs.P1.control_volume.properties_in[0.0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
     print(f'PUMP 1 OUTLET: {value(m.fs.P1.control_volume.properties_out[0.0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
+    print(f'PUMP PRESSURE: {value(pyunits.convert(m.fs.P1.control_volume.properties_out[0.0].pressure, to_units=pyunits.bar)):<5.2f}')
     print('\n')
     print(f'RO FEED: {value(m.fs.RO.inlet.flow_mass_phase_comp[0,"Liq", "H2O"]):<5.2f}')
     print(f'RO PRODUCT: {value(m.fs.RO.permeate.flow_mass_phase_comp[0,"Liq", "H2O"]):<5.2f}')
     print(f'RO BRINE: {value(m.fs.RO.retentate.flow_mass_phase_comp[0,"Liq", "H2O"]):<5.2f}')
     print('\n\n')
+    print(m.fs.M1.report())
+    print(m.fs.RO.report())
 
 
 def main():
@@ -270,9 +273,9 @@ def main():
     solve(m)
     
 
-
 if __name__ == "__main__":
     file_dir = os.path.dirname(os.path.abspath(__file__))
     main()
 
-    #TODO Add constraint that keeps in Q_feed == Q_product
+    #BUG the TDS is going up a ton!
+    #BUG Need to move the pump before the mixer
