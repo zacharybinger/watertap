@@ -111,6 +111,7 @@ def set_operating_conditions(m):
     print("DOF = ", degrees_of_freedom(m))
     assert_no_degrees_of_freedom(m)
 
+
 def initialize_mixer(m, guess = True):
     if guess:
         recovery_guess = 0.3
@@ -144,25 +145,62 @@ def do_forward_initialization_pass(m, pass_num=1):
 
 def initialize(m):
     # initialize unit by unit
-    for init_pass in range(5):
-        do_forward_initialization_pass(m)
+    for idx, init_pass in enumerate(range(2)):
+        print(f'\n\nINITIALIZATION PASS {idx+1}\n\n')
+        do_forward_initialization_pass(m, pass_num=idx)
+        print_results(m)
 
 
-def solve(m):
-    solver = get_solver()
-    results = solver.solve(m, tee=True)
-    assert_optimal_termination(results)
+def solve(m, solver=None, tee=True, raise_on_failure=True):
+    if solver is None:
+        solver = get_solver()
+        solver.options["max_iter"] = 2000
+
+    print("\n--------- SOLVING ---------\n")
+
+    results = solver.solve(m, tee=tee)
+    # store new state so we can see what was chnged before solve
+    if check_optimal_termination(results):
+        print("\n--------- OPTIMAL SOLVE!!! ---------\n")
+        return results
+    msg = (
+        "The current configuration is infeasible. Please adjust the decision variables."
+    )
+    if raise_on_failure:
+        print("\n--------- INFEASIBLE SOLVE!!! ---------\n")
+
+        print("\n--------- CLOSE TO BOUNDS ---------\n")
+        print_close_to_bounds(m)
+
+        print("\n--------- INFEASIBLE BOUNDS ---------\n")
+        print_infeasible_bounds(m)
+
+        print("\n--------- INFEASIBLE CONSTRAINTS ---------\n")
+        print_infeasible_constraints(m)
+
 
 def print_results(m):
-    print(m.fs.RO.report())
-    print(m.fs.M1.report())
+    print('\n\n')
+    print(f'MIXER INLET 1: {value(m.fs.M1.inlet_1_state[0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
+    print(f'MIXER INLET 2: {value(m.fs.M1.inlet_2_state[0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
+    print(f'MIXER OUTLET: {value(m.fs.M1.mixed_state[0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
+    print('\n')
+    print(f'PUMP 1 INLET: {value(m.fs.P1.control_volume.properties_in[0.0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
+    print(f'PUMP 1 OUTLET: {value(m.fs.P1.control_volume.properties_out[0.0].flow_mass_phase_comp["Liq", "H2O"]):<5.2f}')
+    print('\n')
+    print(f'RO FEED: {value(m.fs.RO.inlet.flow_mass_phase_comp[0,"Liq", "H2O"]):<5.2f}')
+    print(f'RO PRODUCT: {value(m.fs.RO.permeate.flow_mass_phase_comp[0,"Liq", "H2O"]):<5.2f}')
+    print(f'RO BRINE: {value(m.fs.RO.retentate.flow_mass_phase_comp[0,"Liq", "H2O"]):<5.2f}')
+    print('\n\n')
+
 
 def main():
     m = build()
     set_operating_conditions(m)
     initialize(m)
-    print_results(m)
+    # print_results(m)
     solve(m)
+    
 
 
 if __name__ == "__main__":
