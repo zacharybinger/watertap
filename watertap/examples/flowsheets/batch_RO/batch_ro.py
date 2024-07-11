@@ -26,7 +26,7 @@ from idaes.models.unit_models.mixer import (
     MomentumMixingType,
     MaterialBalanceType,
 )
-
+import idaes.core.util.scaling as iscale
 from idaes.core.util.initialization import propagate_state
 from pyomo.environ import TransformationFactory
 from pyomo.network import Arc
@@ -84,10 +84,54 @@ def build():
     return m
 
 
-def set_operating_conditions(m):
+def set_operating_conditions(m, Qin = 1, Cin = 35):
+
+    m.fs.water_recovery = Var(
+        initialize=0.5,
+        bounds=(0, 0.99),
+        domain=NonNegativeReals,
+        units=pyunits.dimensionless,
+        doc="System Water Recovery",
+    )
+
+    m.fs.feed_salinity = Var(
+        initialize=35,
+        bounds=(0, 2000),
+        domain=NonNegativeReals,
+        units=pyunits.dimensionless,
+        doc="System Water Recovery",
+    )
+
+    m.fs.feed_flow_mass = Var(
+        initialize=1,
+        bounds=(0.00001, 1e6),
+        domain=NonNegativeReals,
+        units=pyunits.kg / pyunits.s,
+        doc="System Feed Flowrate",
+    )
+
+    iscale.set_scaling_factor(m.fs.water_recovery, 10)
+    iscale.set_scaling_factor(m.fs.feed_flow_mass, 1)
+    iscale.set_scaling_factor(m.fs.feed_salinity, 1)
+
+    if Qin is not None:
+        m.fs.feed_flow_mass.fix(Qin)
+    if Cin is not None:
+        m.fs.feed_salinity.fix(Cin)
+
+    m.fs.feed_flow_constraint = Constraint(
+        expr= m.fs.feed.properties[0].flow_mass_phase_comp['Liq', 'H2O']
+        == m.fs.feed_flow_mass
+    )
+
+    m.fs.nacl_mass_constraint = Constraint(
+        expr=m.fs.feed.properties[0].flow_mass_phase_comp["Liq", "TDS"] * 1000
+        == m.fs.feed_flow_mass * m.fs.feed_salinity
+    )
+
     # feed, 4 degrees of freedom
-    m.fs.feed.properties[0].flow_mass_phase_comp['Liq', 'H2O'].fix(0.965)                # volumetric flow rate (m3/s)
-    m.fs.feed.properties[0].flow_mass_phase_comp["Liq", "TDS"].fix(0.035)  # TDS mass fraction (-)
+    # m.fs.feed.properties[0].flow_mass_phase_comp['Liq', 'H2O'].fix(0.965)                # volumetric flow rate (m3/s)
+    # m.fs.feed.properties[0].flow_mass_phase_comp["Liq", "TDS"].fix(0.035)  # TDS mass fraction (-)
     m.fs.feed.properties[0].pressure.fix(101325)                           # pressure (Pa)
     m.fs.feed.properties[0].temperature.fix(273.15 + 25)                   # temperature (K)
 
@@ -102,7 +146,7 @@ def set_operating_conditions(m):
     m.fs.RO.B_comp.fix(3.5e-8)                                             # membrane salt permeability coeff (m/s)
 
     # fix 4 module specficiations
-    m.fs.RO.area.fix(50)                                                # membrane stage area (m^2)
+    m.fs.RO.area.fix(100)                                                # membrane stage area (m^2)
     m.fs.RO.width.fix(5)                                                # membrane stage width (m)
     m.fs.RO.feed_side.channel_height.fix(1E-3)                          # channel height in membrane stage (m)
     m.fs.RO.feed_side.spacer_porosity.fix(0.97)                         # spacer porosity in membrane stage (-)
@@ -110,6 +154,19 @@ def set_operating_conditions(m):
 
     print("DOF = ", degrees_of_freedom(m))
     assert_no_degrees_of_freedom(m)
+
+
+def set_operating_constraints(m):
+
+    m.fs.eq_feed_product_balance = Constraint(
+        expr=m.fs.feed.properties[0].flow_mass_phase_comp["Liq", "H2O"]
+        == m.fs.product.properties[0].flow_mass_phase_comp["Liq", "H2O"]
+    )
+
+    m.fs.eq_pump_equality = Constraint(
+        expr=m.fs.P1.control_volume.properties_out[0].pressure
+        == m.fs.P2.control_volume.properties_out[0].pressure
+    )
 
 
 def initialize_mixer(m, guess = True):
@@ -121,12 +178,13 @@ def initialize_mixer(m, guess = True):
     m.fs.M1.inlet_2_state[0.0].flow_mass_phase_comp["Liq", "H2O"].unfix()
     m.fs.M1.inlet_2_state[0.0].flow_mass_phase_comp["Liq", "TDS"].unfix()
 
+
 def do_forward_initialization_pass(m, pass_num=1):
     # initialize unit by unit
     m.fs.feed.initialize()
     propagate_state(m.fs.feed_to_M1)
 
-    if pass_num > 1:
+    if pass_num > 0:
         m.fs.M1.initialize()
     else:
         initialize_mixer(m)
@@ -145,11 +203,18 @@ def do_forward_initialization_pass(m, pass_num=1):
 
 def initialize(m):
     # initialize unit by unit
-    for idx, init_pass in enumerate(range(2)):
+    for idx, init_pass in enumerate(range(1)):
         print(f'\n\nINITIALIZATION PASS {idx+1}\n\n')
         do_forward_initialization_pass(m, pass_num=idx)
         print_results(m)
 
+def optimize(m, Q_ro = 0.965):
+
+    m.fs.feed_flow_mass.unfix()
+    m.fs.RO.inlet.flow_mass_phase_comp[0,"Liq", "H2O"].fix(Q_ro)
+    m.fs.RO.recovery_vol_phase[0, "Liq"].fix(0.5)
+    m.fs.P1.control_volume.properties_out[0].pressure.unfix()          # pump outlet pressure (Pa)                                # pump efficiency (-)
+    m.fs.P2.control_volume.properties_out[0].pressure.unfix()          # pump outlet pressure (Pa)
 
 def solve(m, solver=None, tee=True, raise_on_failure=True):
     if solver is None:
@@ -178,6 +243,9 @@ def solve(m, solver=None, tee=True, raise_on_failure=True):
         print("\n--------- INFEASIBLE CONSTRAINTS ---------\n")
         print_infeasible_constraints(m)
 
+        print_results(m)
+
+
 
 def print_results(m):
     print('\n\n')
@@ -198,7 +266,7 @@ def main():
     m = build()
     set_operating_conditions(m)
     initialize(m)
-    # print_results(m)
+    optimize(m)
     solve(m)
     
 
@@ -206,3 +274,5 @@ def main():
 if __name__ == "__main__":
     file_dir = os.path.dirname(os.path.abspath(__file__))
     main()
+
+    #TODO Add constraint that keeps in Q_feed == Q_product
