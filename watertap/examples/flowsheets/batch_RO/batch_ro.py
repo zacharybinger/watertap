@@ -91,18 +91,13 @@ def build_system(time_blk=None):
     m.fs.P2_to_M1 = Arc(source=m.fs.P2.outlet, destination=m.fs.M1.inlet_2)
     m.fs.M1_to_RO = Arc(source=m.fs.M1.outlet, destination=m.fs.RO.inlet)
 
-    # m.fs.feed_to_P1 = Arc(source=m.fs.feed.outlet, destination=m.fs.P1.inlet)
-    # m.fs.P1_to_M1 = Arc(source=m.fs.P1.outlet, destination=m.fs.M1.inlet_1)
-    # m.fs.M1_to_RO = Arc(source=m.fs.M1.outlet, destination=m.fs.RO.inlet)
-
     m.fs.RO_permeate_to_product = Arc(
         source=m.fs.RO.permeate, destination=m.fs.product.inlet
     )
     m.fs.RO_retentate_to_disposal = Arc(
         source=m.fs.RO.retentate, destination=m.fs.disposal.inlet
     )
-    # m.fs.RO_to_P2 = Arc(source=m.fs.RO.retentate, destination=m.fs.P2.inlet)
-    # m.fs.P2_to_M1 = Arc(source=m.fs.P2.outlet, destination=m.fs.M1.inlet_2)
+
     TransformationFactory("network.expand_arcs").apply_to(m)
 
     m.fs.properties.set_default_scaling("flow_mass_phase_comp", 1, index=("Liq", "H2O"))
